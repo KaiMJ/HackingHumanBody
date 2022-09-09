@@ -38,6 +38,8 @@ class HPADataset(Dataset):
             sample = self.transform["transform"](image=img, mask=mask)
         else:
             sample = self.transform(image=img)
+
+        # TODO: Data augmentation: Try splitting into smaller frames
         return sample
 
     def rle2mask(self, mask_rle: str, label=1, shape=(3000, 3000)):

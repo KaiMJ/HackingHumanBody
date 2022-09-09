@@ -24,7 +24,9 @@ def run_train_batch(train_loader, model, opt, progress, e, writer, n_iter, inv_t
     model.train()
 
     for i, data in enumerate(train_loader):
+        opt.zero_grad()
         # data = {image, mask, original}
+        # TODO: TRY AUGMENTATION
         image, mask = data['image'].to(DEVICE), data['mask'].to(DEVICE)
         out = model(image).squeeze(1)
         loss = dice_loss(mask, out)
@@ -32,7 +34,6 @@ def run_train_batch(train_loader, model, opt, progress, e, writer, n_iter, inv_t
         score = binary_crossentropy(mask.to(torch.float32), out).item()
         running_score += score
 
-        opt.zero_grad()
         loss.backward()
         opt.step()
 
@@ -134,7 +135,7 @@ def train_network(model, opt):
         val_iter = e * BATCH_SIZE * len(train_loader)
 
         run_train_batch(train_loader, model, opt, progress, e, train_writer, n_iter, inv_normalize)
-        run_val_batch(val_loader, model, e, val_writer, val_iter, inv_normalize)
+        # run_val_batch(val_loader, model, e, val_writer, val_iter, inv_normalize)
         if PLOT and e%PLOT_EVERY == 1:
             eval_network(test_loader, model, inv_normalize, e, test_writer, val_iter)
             test_submission(submission_writer, model, test_transform, inv_normalize, e, val_iter)
@@ -154,8 +155,8 @@ if __name__ == "__main__":
 
         if OPTIMIZER == "adam":
             opt = torch.optim.Adam(model.parameters(), lr=LEARNING_RATE)
-        else:
-            opt = torch.optim.Adam(model.parameters(), lr=LEARNING_RATE)
+        elif OPTIMIZER == "sgd":
+            opt = torch.optim.SGD(model.parameters(), lr=LEARNING_RATE, momentum=MOMENTUM)
 
         # TODO: set up patience
         # TODO: Learning rate scheduler

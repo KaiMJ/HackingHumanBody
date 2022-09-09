@@ -171,6 +171,9 @@ def get_args():
     parser.add_argument('--batch-size', '-b', dest='batch_size', metavar='B', type=int, default=BATCH_SIZE, help='Batch size')
     parser.add_argument('--learning-rate', '-l', dest='learning_rate', metavar='L', type=float, default=LEARNING_RATE, help='Learning rate')
     parser.add_argument('--optimizer', '-o', metavar='O', type=str, default=OPTIMIZER, help='Optimizer')
+    if OPTIMIZER == 'sgd':
+        parser.add_argument('--momentum', '-m', metavar='M', type=float, default=MOMENTUM, help='Momentum')
+
     parser.add_argument('--split', '-s', metavar='S', type=float, default=SPLIT, help='Training Validation Split')
     parser.add_argument('--img-size', '-i', metavar='I', type=int, default=IMG_SIZE, help='Encoding Image Size')
 

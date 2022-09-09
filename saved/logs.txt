@@ -1,0 +1,2 @@
+--number=1 --epochs=200 --batch_size=16 --learning_rate=0.001 --optimizer=adam --split=0.8 --img_size=256 --description=Vanila U-Net --time=2022-09-08 02:10:28 --TotalTime=02:14:37
+--number=2 --epochs=200 --batch_size=16 --learning_rate=0.001 --optimizer=adam --split=0.8 --img_size=256 --description=Torch Hub Pretrained UNet --time=2022-09-08 20:25:45 --TotalTime=02:09:31
