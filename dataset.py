@@ -5,6 +5,7 @@ import pandas as pd
 from torch.utils.tensorboard import SummaryWriter
 
 import os
+import cv2
 from config import *
 
 # Dataset
@@ -12,16 +13,12 @@ class HPADataset(Dataset):
     '''
         Dataset Class.
     '''
-    def __init__(self, csv_file, root_dir, transform, val_file='saved/messed_up_ids.npy', test=False):
+    def __init__(self, csv_file, root_dir, transform):
         csv = pd.read_csv(csv_file)
-        val_ids = np.load(val_file)
-        if test:
-            self.annotations = csv[csv['id'].isin(val_ids)]
-        else:
-            self.annotations = csv[~csv['id'].isin(val_ids)]
+        invalid_id = 31800
+        self.annotations = csv[csv['id'] != invalid_id]
         self.root_dir = root_dir
         self.transform = transform
-        self.test = test
     
     def __len__(self):
         return len(self.annotations)
@@ -30,16 +27,13 @@ class HPADataset(Dataset):
         img_row = self.annotations.iloc[idx]
         img_path = os.path.join(self.root_dir, str(img_row.id) + '.tiff')
         img = plt.imread(img_path)
+        img = cv2.cvtColor(img, cv2.COLOR_RGBA2RGB)
 
-        if not self.test:
-            # Don't Normalize Mask
-            mask = self.rle2mask(img_row.rle, shape=img.shape[:2])
-            img = self.transform["transform_img"](image=img)["image"]
-            sample = self.transform["transform"](image=img, mask=mask)
-        else:
-            sample = self.transform(image=img)
-
-        # TODO: Data augmentation: Try splitting into smaller frames
+        # Don't Normalize Mask
+        mask = self.rle2mask(img_row.rle, shape=img.shape[:2])
+        img = self.transform["transform_img"](image=img)["image"]
+        sample = self.transform["transform"](image=img, mask=mask)
+        
         return sample
 
     def rle2mask(self, mask_rle: str, label=1, shape=(3000, 3000)):
@@ -79,7 +73,7 @@ def prepare(transform, test_transform, TENSORBOARD_PATH):
                             shuffle=False, drop_last=True)
     val_writer = SummaryWriter(TENSORBOARD_PATH + "/val")
     # 26 Dev-Test Data (messed up data)
-    test_dataset = HPADataset(CSV_FILE, ROOT_DIR, transform=test_transform, test=True)
+    test_dataset = HPADataset(CSV_FILE, ROOT_DIR, transform=test_transform)
     test_loader = DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=True)
     test_writer = SummaryWriter(TENSORBOARD_PATH + "/test")
 

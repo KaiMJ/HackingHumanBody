@@ -1,12 +1,13 @@
 # Default Experiment Values
 from torch.cuda import is_available
 
-EPOCHS = 200
+EPOCHS = 250
 BATCH_SIZE = 16
 LEARNING_RATE = 0.001
 OPTIMIZER = "adam"
 MOMENTUM = 0.9
-SPLIT = 0.8
+WEIGHT_DECAY = 1e-5
+SPLIT = 0.9
 IMG_SIZE = 256
 PLOT = True
 PLOT_EVERY = 5

@@ -1,6 +1,8 @@
-saved/tensorboard/
+saved/
 models/
 runs/
 data/
+hubmap_modified/
 .ipynb_checkpoints
 __pycache__
+deep-image-segmentation-develop/

@@ -1,11 +1,12 @@
+from calendar import c
 import torch
 import torch.nn as nn
+from torch import Tensor
+import torch.nn.functional as F
 import albumentations as A
 from albumentations.pytorch import ToTensorV2
 from albumentations import Resize, Normalize, RandomRotate90, \
-                        HorizontalFlip, VerticalFlip, Transpose, \
-                        ElasticTransform, GridDistortion, OpticalDistortion, \
-                        RandomSizedCrop, CLAHE, RandomBrightnessContrast, RandomGamma
+                        HorizontalFlip, VerticalFlip, CropNonEmptyMaskIfExists
 import argparse
 import os
 import shutil
@@ -16,17 +17,30 @@ import matplotlib.pyplot as plt
 import cv2
 
 # Loss
-def dice_loss(output, target, dim=None):
-    if dim:
-        num = torch.sum(output * target, dim=dim)
-        den = torch.sum(output, dim=dim) + torch.sum(target, dim=dim)
-    else:
-        num = torch.sum(output * target)
-        den = torch.sum(output) + torch.sum(target)
-    loss = 2 * num / den
-    return -loss
 
-binary_crossentropy = nn.BCELoss()
+criterion_name = "FOCAL+DICE"
+def criterion(output: Tensor, target: Tensor):
+    # alpha = torch.multiply(target[0].shape) / target.sum() # smaller mask = bigger alpha
+    return focal_loss(output, target) + dice_loss(output, target)
+
+score_fn_name = "DICE"
+def score_fn(output, target):
+    return 1 - dice_loss(output, target)
+
+def bce(output, target):
+    return F.binary_cross_entropy(output, target.to(torch.float32))
+
+def dice_loss(output, target):
+    num = torch.sum(output * target)
+    den = torch.sum(output) + torch.sum(target)
+    dice = (2 * num + 1) / (den + 1)
+    return 1 - dice
+
+def focal_loss(output, target, gamma=2):
+    bce_loss = F.binary_cross_entropy(output, target.to(torch.float32), reduction="none")
+    pt = torch.exp(-bce_loss) # high loss = low prob, Low loss = high prob
+    loss = (1. - pt)**gamma * bce_loss # penalize false predictions more.
+    return loss.mean()
 
 # Convert Input and Outputs
 def threshold_tensor(array, t=0.5):
@@ -60,12 +74,12 @@ def plot_images(writer, inputs, outputs, losses, n_iter, e, name, n=9):
         outputs - Batch of Mask Numpy [Batch, H, W]
     '''
     plt.tight_layout()
-    fig, axs = plt.subplots(int(n**0.5), int(n**0.5))
+    fig, axs = plt.subplots(3, 3)
     for i, ax in enumerate(axs.flatten()):
         highlight = get_mask_highlight(inputs[i], outputs[i])
         ax.imshow((highlight * 255).astype(np.uint8))
         if losses is not None:
-            ax.set_title(f"Dice: {losses[i]:.4f}")
+            ax.set_title(f"DICE : {losses[i]:.4f}")
     plt.suptitle(f"Epoch {e}")
     writer.add_figure(name, fig, n_iter)
 
@@ -84,11 +98,11 @@ def format_tensors_plt(inp, out, transform, n=9, mask=None):
 def get_transforms(means, stds, size):
     # TODO: Fix transformation. Get cropped and rotated mirroring.
     transform = A.Compose([
+        # CropNonEmptyMaskIfExists(1000, 1000, p=0.5),
         Resize(size, size),
         HorizontalFlip(),
         VerticalFlip(),
         RandomRotate90(),
-        Transpose(),
         # A.OneOf([
         #     A.ElasticTransform(alpha=120, sigma=120 * 0.05, alpha_affine=120 * 0.03, p=0.5),
         #     A.GridDistortion(p=0.5),
@@ -166,19 +180,21 @@ def get_args():
             shutil.rmtree(file_path)
 
     parser.add_argument('--number', '-n', metavar='N', type=str, default=str(count), help='Model Number')
+    parser.add_argument('--description', '-d', metavar='D', type=str, help='Description of Model')
 
     parser.add_argument('--epochs', '-e', metavar='E', type=int, default=EPOCHS, help='Number of epochs')
     parser.add_argument('--batch-size', '-b', dest='batch_size', metavar='B', type=int, default=BATCH_SIZE, help='Batch size')
     parser.add_argument('--learning-rate', '-l', dest='learning_rate', metavar='L', type=float, default=LEARNING_RATE, help='Learning rate')
     parser.add_argument('--optimizer', '-o', metavar='O', type=str, default=OPTIMIZER, help='Optimizer')
-    if OPTIMIZER == 'sgd':
+    if OPTIMIZER == 'adam':
+        parser.add_argument('--weight-decay', '-w', metavar='W', type=float, default=WEIGHT_DECAY, help='Weight Decay')
+    elif OPTIMIZER == 'sgd':
         parser.add_argument('--momentum', '-m', metavar='M', type=float, default=MOMENTUM, help='Momentum')
 
     parser.add_argument('--split', '-s', metavar='S', type=float, default=SPLIT, help='Training Validation Split')
     parser.add_argument('--img-size', '-i', metavar='I', type=int, default=IMG_SIZE, help='Encoding Image Size')
 
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    parser.add_argument('--description', '-d', metavar='D', type=str, help='Description of Model')
     parser.add_argument('--time', '-t', type=str, default=now, help='Start of Experiment')
 
     return parser.parse_args()
