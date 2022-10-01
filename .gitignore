@@ -1,8 +1,7 @@
 saved/
-models/
 runs/
 data/
-hubmap_modified/
+data_modified/
+data_mri_pretrain/
 .ipynb_checkpoints
 __pycache__
-deep-image-segmentation-develop/

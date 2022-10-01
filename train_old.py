@@ -1,7 +1,5 @@
-import sched
 import torch
-from models.model import UNet
-from models.custom import ResUNet
+from model import UNet
 from dataset import prepare
 from config import *
 from utils import *

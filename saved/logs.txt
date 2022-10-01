@@ -1,8 +1,0 @@
---number=1 --description=None --epochs=250 --batch_size=16 --learning_rate=0.001 --optimizer=adam --weight_decay=1e-05 --split=0.9 --img_size=256 --time=2022-09-16 18:50:00 --TotalTime=00:10:33
---number=2 --description=None --epochs=250 --batch_size=16 --learning_rate=0.001 --optimizer=adam --weight_decay=1e-05 --split=0.9 --img_size=256 --time=2022-09-16 19:01:13 --TotalTime=00:10:47
---number=3 --description=None --epochs=250 --batch_size=16 --learning_rate=0.001 --optimizer=adam --weight_decay=1e-05 --split=0.9 --img_size=256 --time=2022-09-17 17:14:55 --TotalTime=00:00:00
---number=4 --description=None --epochs=250 --batch_size=16 --learning_rate=0.001 --optimizer=adam --weight_decay=1e-05 --split=0.9 --img_size=256 --time=2022-09-17 17:15:09 --TotalTime=00:00:00
---number=5 --description=None --epochs=250 --batch_size=16 --learning_rate=0.001 --optimizer=adam --weight_decay=1e-05 --split=0.9 --img_size=256 --time=2022-09-17 17:15:23 --TotalTime=00:00:00
---number=6 --description=None --epochs=250 --batch_size=16 --learning_rate=0.001 --optimizer=adam --weight_decay=1e-05 --split=0.9 --img_size=256 --time=2022-09-17 17:15:36 --TotalTime=00:00:04
---number=7 --description=None --epochs=250 --batch_size=16 --learning_rate=0.001 --optimizer=adam --weight_decay=1e-05 --split=0.9 --img_size=256 --time=2022-09-17 17:15:52 --TotalTime=00:00:04
---number=8 --description=None --epochs=250 --batch_size=16 --learning_rate=0.001 --optimizer=adam --weight_decay=1e-05 --split=0.9 --img_size=256 --time=2022-09-25 20:26:29 --TotalTime=00:05:39
