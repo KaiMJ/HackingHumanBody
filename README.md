@@ -1,37 +1,38 @@
-# HackingHumanBody
+# FTU Segmentation on HPA Dataset Pretrained on MRI Lower-grade Giloma Tumor Scans
 
-Cell Segmentation of FTU
+Cell Segmentation of FTU pretrained on MRI scans using UNet.
 
-How to train network:
-
-```
-python3 train.py --number 1 --description "Train First Time" --epochs 100 --batch-size 16 --learning-rate 0.001 --optimizer "adam" --weight-decay 0.99 --split 0.9 --img-size 256
-```
+## Steps
 
 **SETUP**
 
-Create models and tensorboard dirrectories.
+Download dataset and create file directories.
 
 ```
-mkdir 'saved/{models, tensorboard}'
+./set_up.sh
 ```
 
-Logs will be saved to logs.txt
+Pretrain with MRI Dataset
 
 Ex.
 
 ```
-logs
+python3 train_mri.py --description "MRI-Pretrain" --IMG_SIZE 256 --BATCH-SIZE 16 --SPLIT [0.8, 0.1, 0.1] --EPOCHS 500 --MRI_LEARNING_RATE 0.01 --OPTIMIZER "adam"
+```
+
+Use pretrained MRI model to train on HPA dataset.
+
+Ex.
+
+```
+python3 train_hpa.py --description "HPA-Training" --mri_pretrain True --image-tiling True --IMG_SIZE 256 --BATCH-SIZE 16 --SPLIT [0.8, 0.1, 0.1] --EPOCHS 500 --HPA_LEARNING_RATE 0.01 --OPTIMIZER "adam"
 ```
 
 **Magnetic Resonance Imaging scans used for pretraining**
 
 Lower-grade glioma tumors are marked as green areas.
 
-FLAIR: Fluid-attenuated inversion recovery reveals tissue 
-
 <a href="https://www.sciencedirect.com/science/article/abs/pii/S0010482519301520">Original Paper</a>
-
 
 <p float="left">
   <img src="images/TCGA_DU_6408_19860521.gif" width="200" />
@@ -44,18 +45,58 @@ FLAIR: Fluid-attenuated inversion recovery reveals tissue
 
 **RESULTS**
 
+## MRI Scans
+
+Given that many images do not have masks, those that have a label had a dice score of above 0.7.
+![Alt text](images/mri_final.png?raw=true "MRI Test Prediction")
+
+# Loss Functions and Metrics
+
+It was important for the model to detect small functional tissue units since the size of the regions varied across different organs. Additionally, false positive labels would confuse the researchers and make the model less trustworthy.
+
+This motivated the focal + dice loss function.
+
+- The focal loss was an improvement upon the cross entropy loss by weighing hard (low probability) misclassified examples more. The additional dice loss attaches similiar importance to false positives and false negatives, which help overcome the data imbalance.
+
+For the metrics, f1 score, and dice score were used as the metrics.
+
+- F1 score was monitored to monitor the balance between precision (P(Y=1 | Y^=1)) and recall (P(Y^=1 | Y=1).
+- The dice score was used to determine the overall model performance since it is a pixel-wise score.
+
+## HPA Dataset
+
 ## Focal + Dice Loss
 
-![Alt text](images/1.png?raw=true "Focal + Dice Loss")
+  <img src="images/focal+dice.png" width="400" />
 
 ## Dice Loss
 
-![Alt text](images/2.png?raw=true "Dice Loss")
+  <img src="images/dice.png" width="400" />
+<br/>
+<br/>
+<br/>
+<br/>
 
-## Train Predicted
+## Train and Validation Without Image Tiling Predicted
 
-![Alt text](images/3.png?raw=true "Train Predicted")
+Both training and validation fail to segment smaller objects, especially in lung cancers, where no predictions were made.
 
-## Val Predicted
+<p float="left">
+  <img src="images/train_predicted.png" width="400" />
+  <img src="images/val_predicted.png" width="400" />
+</p>
 
-![Alt text](images/4.png?raw=true "Validation Predicted")
+## Image Tiling
+
+![Alt text](images/tiling.png?raw=true "Tiling images")
+
+## Test Original and Prediction With Image Tiling
+
+Although segmentations on smaller objects were made, there were some false postiive labels.
+
+<p float="left">
+  <h3>Original</h3>
+  <img src="images/test_tiling_original.png" width="500" />
+  <h3>Predicted</h3>
+  <img src="images/test_tiling_predicted.png" width="500" />
+</p>

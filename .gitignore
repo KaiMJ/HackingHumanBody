@@ -1,4 +1,5 @@
-saved/
+saved/hpa/tensorboard
+saved/mri/tensorboard
 runs/
 data/
 data_modified/

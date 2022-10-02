@@ -2,7 +2,12 @@
 kaggle competitions download -c hubmap-organ-segmentation
 unzip hubmap-organ-segmentation
 mv ./hubmap-organ-segmentation ./data
-mkdir data_modified/{images,masks}
+mkdir data_modified
+mkdir data_modified/{train,test}
+mkdir data_modified/train/{images,masks}
+mkdir data_modified/test/{images,masks}
+
+
 
 # Download MRI Pretrain Data
 kaggle datasets download -d mateuszbuda/lgg-mri-segmentation

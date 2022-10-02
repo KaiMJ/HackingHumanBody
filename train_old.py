@@ -1,12 +1,13 @@
 import torch
 from model import UNet
-from dataset import prepare
+from utils import hpa_prepare
 from config import *
 from utils import *
 from tqdm import tqdm
 import numpy as np
 import time
 
+DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 def run_train_batch(train_loader, model, opt, progress, e, writer, n_iter, inv_transform):
     '''
@@ -26,7 +27,8 @@ def run_train_batch(train_loader, model, opt, progress, e, writer, n_iter, inv_t
     for i, data in enumerate(train_loader):
         opt.zero_grad()
         # data = {image, mask, original}
-        image, mask = data['image'].to(DEVICE), data['mask'].to(DEVICE)
+        image, mask = data
+        image, mask = image.to(DEVICE), mask.to(DEVICE)
         out = model(image).squeeze(1)
 
         loss = criterion(out, mask)
@@ -113,18 +115,12 @@ def test_submission(submission_writer, model, test_transform, inv_normalize, e, 
         submission_writer.add_image('Submisssion Highlight', plt_mask, n_iter, dataformats="HW3")
         submission_writer.add_image('Submisssion Mask', plt_img, n_iter, dataformats="HW3")
 
-def train_network(model, opt, scheduler):
-    # Get stats and transforms
-    # full_dataset = HPADataset(CSV_FILE, ROOT_DIR, transform=None)
-    # means, stds = find_stats(full_dataset, 256)
-    means = np.array([212.1089, 205.7680, 210.4203]) / 255
-    stds = np.array([41.9276, 48.7806, 45.6515]) / 255
-    transform, test_transform, inv_normalize = get_transforms(means, stds, IMG_SIZE)
+def train_network(model, opt, scheduler, args):
 
     train_loader, train_writer, \
         val_loader, val_writer, \
         test_loader, test_writer, \
-        submission_writer       =   prepare(transform, test_transform, TENSORBOARD_PATH)
+        inv_normalize       =   hpa_prepare(args)
 
     model.to(DEVICE)
 
@@ -139,26 +135,23 @@ def train_network(model, opt, scheduler):
 
             if scheduler is not None:
                 scheduler.step()
-            if PLOT and e%PLOT_EVERY == 1:
-                # eval_network(test_loader, model, inv_normalize, e, test_writer, val_iter)
-                test_submission(submission_writer, model, test_transform, inv_normalize, e, val_iter)
     return
 
 if __name__ == "__main__":
     # Log experiments
     args = get_args()
-    TENSORBOARD_PATH = TENSORBOARD_PATH_DIR + "/runs_" + args.number
+    TENSORBOARD_PATH = HPA_TENSORBOARD_DIR + "/runs_" + args.description
     start = time.time()
     save = None
     try:
-        print(f"Run Model Number: {args.number}")
+        print(f"Run Model Number: {args.description}")
 
         # Pretrained works better
         model = UNet(3, 1, 32)
-        model.load_state_dict(torch.load('saved/unet.pt'))
+        model.load_state_dict(torch.load('saved/mri/models/model_0'))
 
-        if args.optimizer == "adam":
-            opt = torch.optim.Adam(model.parameters(), lr=LEARNING_RATE, weight_decay=args.weight_decay)
+        if args.OPTIMIZER == "adam":
+            opt = torch.optim.Adam(model.parameters(), lr=HPA_LEARNING_RATE)
         elif args.optimizer == "sgd":
             opt = torch.optim.SGD(model.parameters(), lr=args.learning_rate, momentum=args.momentum)
 
@@ -169,21 +162,13 @@ if __name__ == "__main__":
             verbose = True
         )
         
-        train_network(model, opt, scheduler)
+        train_network(model, opt, scheduler, args)
 
     except KeyboardInterrupt: 
         save = input('Save Model and Log? [y]/n: ')
     finally:
         if save != 'n':
             end = time.time()
-            torch.save(model.state_dict(), f'{MODEL_PATH}/model_{args.number}')
-            print('Saved model.')
-            add_log = {
-                # Total Training Epoch
-                'TotalTime': time.strftime('%H:%M:%S', time.gmtime(end - start))
-                # Best Dice Score
-                # average time, etc...
-            }
-            log_experiment(args, add_log)
+            torch.save(model.state_dict(), f'{HPA_MODEL_PATH}/model_{args.description}')
         else:
             print('Not saved model.')

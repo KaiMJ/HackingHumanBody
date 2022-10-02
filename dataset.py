@@ -4,6 +4,8 @@ import os
 import numpy as np
 import matplotlib.pyplot as plt
 from collections import defaultdict
+from PrepareData import make_tiles
+from config import *
 
 # Dataset
 class HPADataset(Dataset):
@@ -22,9 +24,11 @@ class HPADataset(Dataset):
     def __init__(self, IMG_DIR, MASK_DIR, transform=None, normalize=None, idxs=None):
         self.images = [os.path.join(IMG_DIR, f) for f in sorted(os.listdir(IMG_DIR))]
         self.masks = [os.path.join(MASK_DIR, f) for f in sorted(os.listdir(MASK_DIR))]
+
         if idxs is not None:
             self.images = [self.images[i] for i in idxs]
             self.masks = [self.masks[i] for i in idxs]
+        
         self.transform = transform
         self.normalize = normalize
         
@@ -33,15 +37,49 @@ class HPADataset(Dataset):
 
     def __getitem__(self, idx):
         img = plt.imread(self.images[idx])
+        # TODO: Figure out how plt reads and cv2 writes.
+        # Sometimes mask reads 1/255 instead of 1.
         mask = plt.imread(self.masks[idx])
-        
+        if mask.max() < 0.5:
+            mask = mask *255
         if self.normalize:
             img = self.normalize(image=img)['image']
         if self.transform:
             data = self.transform(image=img, mask=mask)
-            img, mask = data['image'], data['mask']
+            img, mask = data['image'].transpose(2, 0, 1), data['mask']
 
+        img = torch.from_numpy(img)
+        mask = torch.from_numpy(mask)
         return img, mask
+    
+class HPATestset(Dataset):
+    '''
+    Dataset class for HPA test dataset.
+    '''
+    def __init__(self, TEST_IMAGES_DIR, TEST_MASKS_DIR, transform, normalize):
+        self.images = [os.path.join(TEST_IMAGES_DIR, f) for f in sorted(os.listdir(TEST_IMAGES_DIR))]
+        self.masks = [os.path.join(TEST_MASKS_DIR, f) for f in sorted(os.listdir(TEST_MASKS_DIR))]
+        self.images = [plt.imread(f) for f in self.images]
+        self.masks = [plt.imread(f)*255 for f in self.masks]
+        self.transform = transform
+        self.normalize = normalize
+
+    def __len__(self):
+        return len(self.images)
+        
+    def __getitem__(self, idx):
+        '''
+        Returns a [4, 3, 256, 256] tiled image
+        '''
+        img, mask = self.images[idx], self.masks[idx]
+        
+        tiled_images, tiled_masks = make_tiles(img, mask, IMG_SIZE, exclude=False)
+        tiled_images = np.array([self.normalize(image=t)['image'].transpose(2, 0, 1) for t in tiled_images])
+        
+        tiled_images = torch.from_numpy(tiled_images)
+        tiled_masks = torch.from_numpy(np.array(tiled_masks))
+        return tiled_images, tiled_masks
+        
 
 class MRIDataset(Dataset):
     '''

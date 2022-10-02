@@ -9,19 +9,29 @@ import matplotlib.pyplot as plt
 # Data Augmentation and Loader
 import albumentations as A
 from albumentations import Resize, Normalize, RandomRotate90, HorizontalFlip, VerticalFlip
-from dataset import HPADataset, MRIDataset
+from dataset import HPADataset, HPATestset, MRIDataset
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 # Configure training and inference
 import argparse
 from config import *
 
+def dice_loss(output, target):
+    num = torch.sum(output * target)
+    den = torch.sum(output) + torch.sum(target)
+    dice = (2 * num) / (den + 1)
+    return 1 - dice
+
+def focal_loss(output, target, gamma=2):
+    bce_loss = F.binary_cross_entropy(output, target, reduction='none')
+    pt = torch.exp(-bce_loss) # high loss = low prob, Low loss = high prob
+    loss = (1. - pt)**gamma * bce_loss # penalize false predictions more.
+    return loss.mean()
+
 # Loss
 criterion_name = "FOCAL+DICE"
 def criterion(output, target):
-    # alpha = torch.multiply(target[0].shape) / target.sum() # smaller mask = bigger alpha
     return focal_loss(output, target) + dice_loss(output, target)
-    # return dice_loss(output, target)
 
 score_fn_name = "DICE"
 def score_fn(output, target):
@@ -30,17 +40,16 @@ def score_fn(output, target):
 def bce(output, target):
     return F.binary_cross_entropy(output, target.to(torch.float32))
 
-def dice_loss(output, target):
-    num = torch.sum(output * target)
-    den = torch.sum(output) + torch.sum(target)
-    dice = (2 * num + 1) / (den + 1)
-    return 1 - dice
+def f1_score(output, target):
+    tp = (output * target).sum(dim=(1, 2))
+    fp = (output * (1 - target)).sum(dim=(1, 2))
+    fn = ((1 - output) * (target)).sum(dim=(1, 2))
 
-def focal_loss(output, target, gamma=2):
-    bce_loss = F.binary_cross_entropy(output, target.to(torch.float32), reduction="none")
-    pt = torch.exp(-bce_loss) # high loss = low prob, Low loss = high prob
-    loss = (1. - pt)**gamma * bce_loss # penalize false predictions more.
-    return loss.mean()
+    precision = tp / (tp + fp + 1e-6)
+    recall = tp / (tp + fn + 1e-6)
+
+    f1 = 2 * (precision * recall) / (precision + recall + 1e-6)
+    return f1.mean()
 
 # Convert Input and Outputs
 def threshold_tensor(array, t=0.5):
@@ -83,6 +92,7 @@ def plot_images(writer, inputs, outputs, losses, score_name, n_iter, e, name, n=
     plt.suptitle(f"Epoch {e}")
     writer.add_figure(name, fig, n_iter)
 
+
 def mri_plot(image, output, mask, mean, std, score_fn, score_fn_name, writer, n_iter, e, args, name, n=9):
     '''
     Plot MRI Scans.
@@ -100,13 +110,12 @@ def mri_plot_test(image, output, mask, mean, std, score_fn, score_fn_name, write
     plt_outs = threshold_tensor(output[:n]).detach().cpu().numpy().astype(np.uint8) # [9, 256, 256]
     plt_masks = mask[:n].cpu().numpy().astype(np.uint8) # [9, 256, 256]
 
-    plot_images(writer, plt_imgs, plt_masks, None, score_fn_name, 1, "F", "Test Original", n)
+    plot_images(writer, plt_imgs, plt_masks, None, score_fn_name, 1, "Final", "Test Original", n)
     plot_images(writer, plt_imgs, plt_outs, losses, score_fn_name, 1, "Final", "Test Predicted", n)
-
 
 def format_tensors_plt(inp, out, transform, n=9, mask=None):
     '''
-        Format tensors and then plot.
+        Format tensors and then output plot ready arrays.
     '''
     plt_imgs = transform(image=inp[:n].permute(0, 2, 3, 1).cpu().numpy())['image'] # [9, 256, 256, 3]
     plt_outs = threshold_tensor(out[:n]).detach().cpu().numpy().astype(np.uint8) # [9, 256, 256]
@@ -115,6 +124,34 @@ def format_tensors_plt(inp, out, transform, n=9, mask=None):
         return plt_imgs, plt_outs, plt_masks
     else:
         return plt_imgs, plt_outs
+
+def combine_tensors(arrays: torch.Tensor, shape) -> np.ndarray:
+    '''
+    Combines tiled tensors and returns one big image.
+
+    Parameters:
+        arrays:
+            images: [9, 4, 3, 256, 256] --> [9, 256, 256, 3]
+            output: Tensor [9, 4, 256, 256] --> [9, 256, 256]
+            masks: [9, 4, 256, 256] --> [9, 256, 256]
+    '''
+    h = shape[0]
+    w = shape[1]
+    if len(arrays.shape) == 4:
+        result = np.zeros((arrays.shape[0], h*2, w*2))
+        result[:, :h, :w] = arrays[:, 0, ...]
+        result[:, :h, w:] = arrays[:, 1, ...]
+        result[:, h:, :w] = arrays[:, 2, ...]
+        result[:, h:, w:] = arrays[:, 3, ...]
+    else:
+        result = np.zeros((arrays.shape[0], 3, h*2, w*2))
+        result[:, :, :h, :w] = arrays[:, 0, ...]
+        result[:, :, :h, w:] = arrays[:, 1, ...]
+        result[:, :, h:, :w] = arrays[:, 2, ...]
+        result[:, :, h:, w:] = arrays[:, 3, ...]
+        result = result.transpose(0, 2, 3, 1)
+    return result
+
 
 def hpa_transforms(mean, std, size):
     '''
@@ -130,6 +167,7 @@ def hpa_transforms(mean, std, size):
         normalize: normalize function for input images
         inv_normalize: inverse normalize function for normalized images
     '''
+    # mean, std = np.zeros(3), np.ones(3)
     transform = A.Compose([
         Resize(size, size),
         HorizontalFlip(),
@@ -137,11 +175,10 @@ def hpa_transforms(mean, std, size):
         RandomRotate90()
     ])
 
-    normalize = Normalize(mean=mean, std=std)
+    normalize = Normalize(mean=mean, std=std, max_pixel_value=1)
 
     test_transform = A.Compose([
-        Resize(size, size),
-        Normalize(mean=mean, std=std)
+        Resize(size, size)
     ])
 
     inv_normalize = A.Compose([
@@ -164,10 +201,11 @@ def hpa_get_mean_std(full_dataset=None, size=None, calculate=False):
         std: array of size 3 of the standard deviation
     '''
     if not calculate:
-        mean = torch.Tensor([0.1852, 0.2050, 0.1797])
-        std = torch.Tensor([0.1804, 0.1932, 0.1670])
+        mean = torch.Tensor([0.8316, 0.7917, 0.8253])
+        std = torch.Tensor([0.1756, 0.1866, 0.1794])
         return mean, std
-    
+
+    print("Calulating mean, std...")
     # Find mean
     total = torch.zeros(3)
     for image, _ in full_dataset:
@@ -180,6 +218,7 @@ def hpa_get_mean_std(full_dataset=None, size=None, calculate=False):
     for image, _ in full_dataset:
         total_var += ((image.view(3, -1) - mean.unsqueeze(1))**2).sum(1)
     std = torch.sqrt(total_var / (len(full_dataset)*size*size))
+
     return mean, std
 
 def hpa_prepare(args):
@@ -190,27 +229,36 @@ def hpa_prepare(args):
         train, val, test data loaders
         train, val, test tensorboard writers
     '''
+    # full_dataset = HPADataset(args.MOD_IMAGES_DIR, args.MOD_MASKS_DIR, )
     mean, std = hpa_get_mean_std(calculate=False)
     transform, test_transform, normalize, inv_normalize = hpa_transforms(mean, std, args.IMG_SIZE)
-    
+
     n = len(os.listdir(args.MOD_IMAGES_DIR))
     idxs = np.random.permutation(n)
-    train_size = int(n * args.SPLIT[0])
-    train_idxs = idxs[:train_size]
-    val_idxs = idxs[train_size: train_size+int(n*args.SPLIT[1])]
-    test_idxs = idxs[train_size+int(n*args.SPLIT[1]):]
+    if args.image_tiling:
+        train_size = int(n * (args.SPLIT[0]+args.SPLIT[1]))
+        train_idxs = idxs[:train_size]
+        val_idxs = idxs[train_size: ]
+    else:
+        train_size = int(n * args.SPLIT[0])
+        train_idxs = idxs[:train_size]
+        val_idxs = idxs[train_size: train_size+int(n*args.SPLIT[1])]
+        test_idxs = idxs[train_size+int(n*args.SPLIT[1]):]
 
     train_dataset = HPADataset(args.MOD_IMAGES_DIR, args.MOD_MASKS_DIR, transform, normalize, train_idxs)
     val_dataset = HPADataset(args.MOD_IMAGES_DIR, args.MOD_MASKS_DIR, test_transform, normalize, val_idxs)
-    test_dataset = HPADataset(args.MOD_IMAGES_DIR, args.MOD_MASKS_DIR, test_transform, normalize, test_idxs)
-
-
 
     train_loader = DataLoader(train_dataset, batch_size=args.BATCH_SIZE, 
                             shuffle=True, drop_last=True)
     val_loader = DataLoader(val_dataset, batch_size=args.BATCH_SIZE,
                             shuffle=True, drop_last=True)
-    test_loader = DataLoader(test_dataset, batch_size=args.BATCH_SIZE, shuffle=True)
+
+    if args.image_tiling:
+        test_dataset = HPATestset(args.TEST_IMAGES_DIR, args.TEST_MASKS_DIR, test_transform, normalize)
+        test_loader = DataLoader(test_dataset, batch_size=9, shuffle=True)
+    else:
+        test_dataset = HPADataset(args.MOD_IMAGES_DIR, args.MOD_MASKS_DIR, test_transform, normalize, test_idxs)
+        test_loader = DataLoader(test_dataset, batch_size=args.BATCH_SIZE, shuffle=True)
 
     train_writer = SummaryWriter(args.HPA_TENSORBOARD_DIR + "/train")
     val_writer = SummaryWriter(args.HPA_TENSORBOARD_DIR + "/val")
@@ -256,7 +304,7 @@ def mri_prepare(args):
     train_idxs = idxs[:train_size]
     val_idxs = idxs[train_size: train_size+int(n*args.SPLIT[1])]
     test_idxs = idxs[train_size+int(n*args.SPLIT[1]):]
-    
+
     train_dataset = MRIDataset(args.PRETRAIN_DIR, transform, train_idxs)
     val_dataset = MRIDataset(args.PRETRAIN_DIR, test_transform, val_idxs)
     test_dataset = MRIDataset(args.PRETRAIN_DIR, test_transform, test_idxs)
@@ -283,16 +331,29 @@ def get_args():
     parser.add_argument(
         "--description",
         '-d',
-        default = "0",
+        default = DESCRIPTION,
         type=str,
         help="Description of training."
+    )
+    # Train
+    parser.add_argument(
+        "--mri-pretrain",
+        default = True,
+        type=bool,
+        help="With MRI pretraining training."
+    )
+    parser.add_argument(
+        "--image-tiling",
+        default=True,
+        type=bool,
+        help="With image tiling for training."
     )
     # Dataset
     parser.add_argument(
         "--IMG-SIZE",
         type=int,
         default=IMG_SIZE,
-        help="Image size during training and inference"
+        help="Image size during training and inference."
     )
     parser.add_argument(
         "--BATCH-SIZE",
@@ -304,7 +365,7 @@ def get_args():
         "--SPLIT",
         type=list,
         default=SPLIT,
-        help="Split of train, validation, and test datasets in list."
+        help="Split of train, validation datasets."
     )
 
     # Training
@@ -315,10 +376,16 @@ def get_args():
         help="Epochs of training."
     )
     parser.add_argument(
-        "--LEARNING-RATE",
+        "--MRI-LEARNING-RATE",
         type=float,
-        default=LEARNING_RATE,
-        help="Learning rate"
+        default=MRI_LEARNING_RATE,
+        help="Learning rate for MRI"
+    )
+    parser.add_argument(
+        "--HPA-LEARNING-RATE",
+        type=float,
+        default=HPA_LEARNING_RATE,
+        help="Learning rate for MRI"
     )
     parser.add_argument(
         "--OPTIMIZER",
@@ -326,14 +393,6 @@ def get_args():
         default=OPTIMIZER,
         help="Default optimizer: Adam"
     )
-    # if OPTIMIZER == "adam":
-    #     parser.add_argument(
-    #         "--MOMENTUM",
-    #         type=float,
-    #         default=MOMENTUM,
-    #         help="Momentum of Adam optimizer."
-    #     )
-    
     # File directories
     parser.add_argument(
         "--PRETRAIN-DIR",
@@ -357,13 +416,25 @@ def get_args():
         "--MOD-IMAGES-DIR",
         type=str,
         default=MOD_IMAGES_DIR,
-        help="Path to HPA images training images directory"
+        help="Path to HPA training images directory"
     )
     parser.add_argument(
         "--MOD-MASKS-DIR",
         type=str,
         default=MOD_MASKS_DIR,
-        help="Path to HPA images training images directory"
+        help="Path to HPA training masks directory"
+    )
+    parser.add_argument(
+        "--TEST-IMAGES-DIR",
+        type=str,
+        default=TEST_IMAGES_DIR,
+        help="Path to HPA testing images directory"
+    )
+    parser.add_argument(
+        "--TEST-MASKS-DIR",
+        type=str,
+        default=TEST_MASKS_DIR,
+        help="Path to HPA testing masks directory"
     )
     parser.add_argument(
         "--MRI-TENSORBOARD-DIR",

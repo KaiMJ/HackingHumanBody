@@ -48,7 +48,6 @@ def train_step(model, loader, opt, progress, e, writer, n_iter, args):
             mri_plot(image, output, mask, std, mean, score_fn, score_fn_name, \
                     writer, n_iter, e, args, "Train")
 
-        break
 
 def val_step(model, loader, e, writer, val_iter, args):
     model.eval()
@@ -97,7 +96,6 @@ def test_step(model, loader, writer, args):
         print(f"Test AVG: {criterion_name}--{loss:.4f} {score_fn_name}--{score:.4f}")
 
 if __name__ == "__main__":
-
     seed = 123
     torch.manual_seed(seed)
     torch.cuda.manual_seed(seed)
@@ -111,13 +109,12 @@ if __name__ == "__main__":
     try:
         args = get_args()
         args.MRI_TENSORBOARD_DIR += "/runs_" + args.description
-        # args.HPA_TENSORBOARD_DIR +=  "/runs_" + args.description
         DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
         model = UNet()
         model.to(DEVICE)
         print(f"DEVICE: {DEVICE}")
-        opt = torch.optim.Adam(model.parameters(), lr=args.LEARNING_RATE)
+        opt = torch.optim.Adam(model.parameters(), lr=args.MRI_LEARNING_RATE)
 
         milestones = [args.EPOCHS * 0.8, args.EPOCHS * 0.9]
         gamma = 0.1
@@ -126,7 +123,7 @@ if __name__ == "__main__":
         train_loader, train_writer, val_loader, val_writer, \
                 test_loader, test_writer = mri_prepare(args)
 
-        current_lr = args.LEARNING_RATE
+        current_lr = args.MRI_LEARNING_RATE
         with tqdm(range(1, args.EPOCHS+1)) as progress:
             for e in progress:
                 progress.set_description(f"Epoch: {e}/{args.EPOCHS}")
